@@ -1,0 +1,96 @@
+version: '3'
+
+services:
+  wordpress:
+    build: ./docker/wordpress
+    ports:
+      - ${IP:-0.0.0.0}:${WP_PORT:-80}:80
+      - ${IP:-0.0.0.0}:${WP_PORT_SSL:-443}:443
+    volumes:
+      - ./docker/wp_php.ini:/usr/local/etc/php/conf.d/wp_php.ini
+      - ./wp:/var/www/html
+      - ./logs:/var/log/apache2
+      - ./plugins:/var/www/html/wp-content/plugins
+      - ./themes:/var/www/html/wp-content/themes
+      - ./uploads:/var/www/html/wp-content/uploads
+      - ./docker/ssl/ssl-cert-snakeoil.key:/etc/ssl/private/ssl-cert-snakeoil.key
+      - ./docker/ssl/ssl-cert-snakeoil.pem:/etc/ssl/certs/ssl-cert-snakeoil.pem
+      - ./docker/default-ssl.conf:/etc/apache2/sites-enabled/000-default.conf
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: "${DB_NAME}"
+      WORDPRESS_DB_USER: "${DB_USER}"
+      WORDPRESS_DB_PASSWORD: "${DB_ROOT_PASSWORD}"
+
+    env_file:
+      - .env
+    depends_on:
+      - db
+    links:
+      - db
+
+  wpcli:
+    image: wordpress:cli
+    volumes:
+      - ./docker/wp_php.ini:/usr/local/etc/php/conf.d/wp_php.ini
+      - ./wp:/var/www/html
+      - ./plugins:/var/www/html/wp-content/plugins
+      - ./themes:/var/www/html/wp-content/themes
+      - ./uploads:/var/www/html/wp-content/uploads
+      - ./docker/ssl:/etc/ssl
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: "${DB_NAME}"
+      WORDPRESS_DB_USER: "${DB_USER}"
+      WORDPRESS_DB_PASSWORD: "${DB_ROOT_PASSWORD}"
+    env_file:
+      - .env
+    depends_on:
+      - wordpress
+      - db
+
+  pma:
+    image: phpmyadmin:latest  # https://hub.docker.com/_/phpmyadmin
+    environment:
+      # https://docs.phpmyadmin.net/en/latest/setup.html#docker-environment-variables
+      PMA_HOST: db
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD}"
+      UPLOAD_LIMIT: 50M
+    ports:
+      - ${IP:-0.0.0.0}:${PMA_PORT:-8080}:80
+    links:
+      - db:db
+    volumes:
+      - ./docker/pma_php.ini:/usr/local/etc/php/conf.d/conf.ini
+      - ./docker/pma_config.php:/etc/phpmyadmin/config.user.inc.php
+
+  db:
+    image: mysql:latest
+    platform: linux/x86_64
+    ports:
+      - ${IP:-0.0.0.0}:3306:3306
+    command: [
+      '--default_authentication_plugin=mysql_native_password',
+      '--character-set-server=utf8mb4',
+      '--collation-server=utf8mb4_unicode_ci'
+    ]
+    volumes:
+      - ./data:/docker-entrypoint-initdb.d
+      - db_data:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: "${DB_NAME}"
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD}"
+      MYSQL_USER: "${DB_USER}"
+      MYSQL_PASSWORD: "${DB_PASSWORD}"
+  openssl:
+    build: ./docker/openssl
+    command: >
+      sh -c "openssl genrsa -out /etc/ssl/ssl-cert-snakeoil.key 4096 &&
+      openssl req -new -x509 -key /etc/ssl/ssl-cert-snakeoil.key -config /etc/ssl/openssl.cnf -out /etc/ssl/ssl-cert-snakeoil.pem -days 365 -subj \"/CN=${WP_SERVER_NAME}\""
+
+    volumes:
+      - ./docker/ssl:/etc/ssl
+
+volumes:
+  db_data:
