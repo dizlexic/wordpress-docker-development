@@ -15,17 +15,17 @@ services:
       - ./uploads:/var/www/html/wp-content/uploads
       - ./docker/ssl/ssl-cert-snakeoil.key:/etc/ssl/private/ssl-cert-snakeoil.key
       - ./docker/ssl/ssl-cert-snakeoil.pem:/etc/ssl/certs/ssl-cert-snakeoil.pem
-      - ./docker/default-ssl.conf:/etc/apache2/sites-enabled/000-default.conf
+      - ./docker/default.conf:/etc/apache2/sites-enabled/000-default.conf
     environment:
       WORDPRESS_DB_HOST: db
       WORDPRESS_DB_NAME: "${DB_NAME}"
       WORDPRESS_DB_USER: "${DB_USER}"
       WORDPRESS_DB_PASSWORD: "${DB_ROOT_PASSWORD}"
-
     env_file:
       - .env
     depends_on:
       - db
+      - ssl
     links:
       - db
 
@@ -38,16 +38,23 @@ services:
       - ./themes:/var/www/html/wp-content/themes
       - ./uploads:/var/www/html/wp-content/uploads
       - ./docker/ssl:/etc/ssl
+    command: bash -c "wp core is-installed --path=/var/www/html || wp core install --path=/var/www/html --url=${WP_SERVER_NAME} --title=\"$WP_TITLE\" --admin_user=${WP_ADMIN_USER} --admin_password=${WP_ADMIN_PASSWORD} --admin_email=${WP_ADMIN_EMAIL} --skip-email"
     environment:
       WORDPRESS_DB_HOST: db
       WORDPRESS_DB_NAME: "${DB_NAME}"
       WORDPRESS_DB_USER: "${DB_USER}"
-      WORDPRESS_DB_PASSWORD: "${DB_ROOT_PASSWORD}"
+      WORDPRESS_DB_PASSWORD: "${DB_PASSWORD}"
+      WP_ADMIN_USER: "${WP_ADMIN_USER}"
+      WP_ADMIN_PASSWORD: "${WP_ADMIN_PASSWORD}"
+      WP_ADMIN_EMAIL: "${WP_ADMIN_EMAIL}"
     env_file:
       - .env
+    links:
+      - db
     depends_on:
       - wordpress
       - db
+
 
   pma:
     image: phpmyadmin:latest  # https://hub.docker.com/_/phpmyadmin
@@ -71,7 +78,6 @@ services:
     ports:
       - ${IP:-0.0.0.0}:3306:3306
     command: [
-      '--default_authentication_plugin=mysql_native_password',
       '--character-set-server=utf8mb4',
       '--collation-server=utf8mb4_unicode_ci'
     ]
@@ -83,14 +89,20 @@ services:
       MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD}"
       MYSQL_USER: "${DB_USER}"
       MYSQL_PASSWORD: "${DB_PASSWORD}"
-  openssl:
-    build: ./docker/openssl
-    command: >
-      sh -c "openssl genrsa -out /etc/ssl/ssl-cert-snakeoil.key 4096 &&
-      openssl req -new -x509 -key /etc/ssl/ssl-cert-snakeoil.key -config /etc/ssl/openssl.cnf -out /etc/ssl/ssl-cert-snakeoil.pem -days 365 -subj \"/CN=${WP_SERVER_NAME}\""
+    env_file:
+        - .env
 
+  ssl:
+    build: ./docker/ssl
     volumes:
       - ./docker/ssl:/etc/ssl
+    links:
+      - db
+    healthcheck:
+      test: ["CMD-SHELL", " netstat -tuln | grep -q ${PMA_PORT:-8080}"]
+      interval: 30s
+    depends_on:
+      - db
 
 volumes:
   db_data:

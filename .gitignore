@@ -1,14 +1,7 @@
 vendor/
+
 .env
 
 .idea/*
 
-plugins/*
-uploads/*
-themes/*
-logs/*
-docker/ssl/*
-wp/*
-
-!**/.gitkeep
 !**/.gitignore
